@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Session Keywords</h2>
+<ul>
+{% for kw in keywords %}
+    <li>{{ kw }}</li>
+{% endfor %}
+</ul>
+
+<h2>All Search Results (by iteration)</h2>
+{% for resultset in results %}
+    <p>Result Set #{{ loop.index }} (for keyword "{{ keywords[loop.index0] }}")</p>
+    <ul>
+    {% for doc in resultset %}
+       <li>{{ doc.title }} (score={{ doc.bm25_score }})</li>
+    {% endfor %}
+    </ul>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,163 @@
+# Description: This file contains all the queries used in the application.
+#              The queries are written in YAML format and are loaded into the
+#              application at runtime. This allows for easy modification of
+#              queries without having to recompile the application.
+
+create_tables: >
+  SOURCE /path/to/init_db.sql;
+
+insert_category: >
+  INSERT INTO categories(name) VALUES ('{category_name}');
+
+insert_document: >
+  INSERT INTO documents(abstract, category_id, doc_length, dataset_id)
+  VALUES ('{abstract}', {category_id}, {doc_length}, {dataset_id});
+
+insert_keyword: >
+  INSERT INTO keywords(keyword, vocabulary_id) 
+  VALUES ('{keyword}', {vocabulary_id});
+
+insert_vocabulary: >
+  INSERT INTO vocabulary(term) VALUES ('{word}');
+
+insert_document_keyword: >
+  INSERT INTO document_keywords(document_id, keyword_id, term_frequency)
+  VALUES ({doc_id}, {keyword_id}, {term_frequency});
+
+insert_document_vocabulary: >
+  INSERT INTO document_vocabulary(document_id, vocabulary_id, term_frequency)
+  VALUES ({doc_id}, {vocabulary_id}, {term_frequency});
+
+insert_document_frequency: >
+  INSERT INTO document_frequencies(vocabulary_id, doc_freq, idf)
+  VALUES ({vocabulary_id}, {doc_freq}, {idf});
+
+insert_clickthrough: >
+  INSERT INTO clickthrough_rates(document_id, term_id, clicks)
+  VALUES ({doc_id}, {term_id}, {clicks});
+
+insert_docdoc_sim: >
+  INSERT INTO doc_doc_similarities(doc_id1, doc_id2, similarity)
+  VALUES ({doc_id1}, {doc_id2}, {similarity});
+
+# This query calculates the BM25 score for documents based on the given query terms.
+# BM25 is a ranking function used by search engines to estimate the relevance of documents to a given search query.
+# 
+# Parameters:
+#   :k1 - A tuning parameter that calibrates the term frequency scaling.
+#   :b - A tuning parameter that controls the scaling by document length.
+#   :avgdl - The average document length in the collection.
+#   :query_terms - A list of terms in the search query.
+#   :limit - The maximum number of results to return.
+search_bm25: >
+  SELECT 
+    d.id AS doc_id,
+    SUM(
+      df.idf * (
+         (dv.term_frequency * ( :k1 + 1 )) 
+         / ( dv.term_frequency + :k1 * (1 - :b + :b * (d.doc_length / :avgdl)) )
+      )
+    ) AS bm25_score
+  FROM documents d
+  JOIN document_vocabulary dv ON d.id = dv.document_id
+  JOIN vocabulary v ON dv.vocabulary_id = v.id
+  JOIN document_frequencies df ON df.vocabulary_id = v.id
+  WHERE v.term IN (:query_terms)
+  GROUP BY d.id
+  ORDER BY bm25_score DESC
+  LIMIT :limit;
+
+get_results_texts: >
+  SELECT d.id AS doc_id, d.abstract
+  FROM documents d
+  WHERE d.id IN (:doc_ids);
+
+# This query increments the clickthrough rates for a given document and a term. inserts a new row if the document-term pair does not exist.
+update_clickthrough: >
+  INSERT INTO clickthrough_rates (document_id, term_id, clicks)
+  VALUES (:doc_id, :term_id, 1)
+  ON DUPLICATE KEY UPDATE
+    clicks = clicks + 1;
+
+get_clickthrough_rate: >
+  SELECT document_id, v.term, clicks
+  FROM clickthrough_rates
+  JOIN vocabulary v ON clickthrough_rates.term_id = v.id
+  WHERE document_id in (:doc_ids)
+  GROUP BY document_id, v.term, clicks;
+
+# This query calculates the TF-IDF entropy for a set of documents and ranks them into quartiles.
+# 
+# Parameters:
+#   :doc_ids - A list of document IDs for which to calculate the TF-IDF entropy.
+tfidf_entropy: >
+  WITH doc_tfidf AS (
+    SELECT
+      dv.document_id AS doc_id,
+      (dv.term_frequency / d.doc_length) * df.idf AS tfidf
+    FROM document_vocabulary dv
+    JOIN documents d ON d.id = dv.document_id
+    JOIN document_frequencies df ON df.vocabulary_id = dv.vocabulary_id
+    WHERE dv.document_id IN (:doc_ids)
+  ),
+  doc_sums AS (
+    SELECT doc_id, SUM(tfidf) AS total_tfidf
+    FROM doc_tfidf
+    GROUP BY doc_id
+  ),
+  doc_probs AS (
+    SELECT
+      t.doc_id,
+      (t.tfidf / s.total_tfidf) AS p
+    FROM doc_tfidf t
+    JOIN doc_sums s ON t.doc_id = s.doc_id
+  ),
+  doc_entropy AS (
+    SELECT
+      doc_id,
+      -1 * SUM(p * LN(p)) AS entropy
+    FROM doc_probs
+    WHERE p > 0
+    GROUP BY doc_id
+  ),
+  ranked_docs AS (
+    SELECT
+      doc_id,
+      entropy,
+      CUME_DIST() OVER (ORDER BY entropy) AS percentile
+    FROM doc_entropy
+  )
+  SELECT
+    doc_id,
+    entropy,
+    percentile * 100 AS percentile_score,
+    CASE
+      WHEN percentile <= 0.25 THEN '1st Quartile'
+      WHEN percentile <= 0.50 THEN '2nd Quartile'
+      WHEN percentile <= 0.75 THEN '3rd Quartile'
+      ELSE '4th Quartile'
+    END AS entropy_quartile
+  FROM ranked_docs
+  ORDER BY entropy;
+
+# This query retrieves the co-occurrence count of a list of keywords in the document vocabulary.
+#
+# Parameters:
+#   :terms - A list of keywords for which to calculate co-occurrences.
+get_keyword_cooccurrences: >
+  SELECT 
+    v1.term AS kw1,
+    v2.term AS kw2,
+    COUNT(DISTINCT dv1.document_id) AS cooccurrence_count
+  FROM document_vocabulary dv1
+  JOIN document_vocabulary dv2 
+    ON dv1.document_id = dv2.document_id
+  JOIN vocabulary v1 
+    ON dv1.vocabulary_id = v1.id
+  JOIN vocabulary v2
+    ON dv2.vocabulary_id = v2.id
+  WHERE dv1.vocabulary_id != dv2.vocabulary_id
+    AND v1.term IN (:terms)
+    AND v2.term IN (:terms)
+  GROUP BY 
+    v1.term, v2.term;

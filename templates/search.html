@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-4xl mx-auto">
+        <!-- Search Form -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+            <form method="POST" class="flex gap-4">
+                <input type="text" name="keyword" placeholder="Enter a keyword"
+                    class="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" />
+                <select name="quartile"
+                    class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    <option value="all">All Quartiles</option>
+                    <option value="1st Quartile">1st Quartile</option>
+                    <option value="2nd Quartile">2nd Quartile</option>
+                    <option value="3rd Quartile">3rd Quartile</option>
+                    <option value="4th Quartile">4th Quartile</option>
+                </select>
+                <button type="submit"
+                    class="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition duration-150">
+                    Search
+                </button>
+            </form>
+        </div>
+
+        <!-- <form action="{{ url_for('start_search') }}" method="POST" class="mb-8">
+            <button type="submit"
+                class="w-full bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 transition duration-150">
+                Start a New Search Session
+            </button>
+        </form> -->
+
+        <!-- Keywords -->
+        <div class="mb-8">
+            <h2 class="text-xl font-semibold mb-4 text-gray-700">Current Keywords</h2>
+            <div class="flex flex-wrap gap-2">
+                {% set keywords_str = keywords|join(' ') %}
+                <p class="text-gray-600 mb-4">{{ keywords_str|highlight_keywords(keywords)|safe }}</p>
+            </div>
+        </div>
+
+        <script src="https://d3js.org/d3.v7.min.js"></script>
+        <div class="mb-8">
+            <h2 class="text-xl font-semibold mb-4 text-gray-700">Keyword Co-occurrence Graph</h2>
+            <svg id="coocGraph" width="640" height="640"></svg>
+        </div>
+
+        <script>
+            const cooccurrences_json = {{ cooccurrences| tojson }};
+
+            // Build graph data
+            const nodes = [];
+            const nodeIndex = new Map();
+            const links = [];
+
+            function addNode(id) {
+                if (!nodeIndex.has(id)) {
+                    nodeIndex.set(id, nodes.length);
+                    nodes.push({ id, name: id });
+                }
+            }
+
+            cooccurrences_json.forEach(({ kw1, kw2, cooccurrence_count }) => {
+                addNode(kw1);
+                addNode(kw2);
+                links.push({
+                    source: nodeIndex.get(kw1),
+                    target: nodeIndex.get(kw2),
+                    value: cooccurrence_count
+                });
+            });
+
+            const width = 640, height = 640;
+            const svg = d3.select("#coocGraph");
+            const simulation = d3.forceSimulation(nodes)
+                .force("link", d3.forceLink(links).distance(d => 200).strength(1))
+                .force("charge", d3.forceManyBody().strength(-200))
+                .force("center", d3.forceCenter(width / 2, height / 2));
+
+            const link = svg.selectAll(".link")
+                .data(links)
+                .enter().append("line")
+                .attr("class", "link")
+                .attr("stroke", "#999")
+                .attr("stroke-width", d => 1 + 2 * Math.log(d.value));
+
+            const linkLabels = svg.selectAll(".link-label")
+                .data(links)
+                .enter().append("text")
+                .attr("class", "link-label")
+                .attr("font-size", "16px")
+                .attr("fill", "#333")
+                .text(d => d.value);
+
+            const node = svg.selectAll(".node")
+                .data(nodes)
+                .enter().append("circle")
+                .attr("class", "node")
+                .attr("r", 10)
+                .attr("fill", "#6366f1")
+                .call(d3.drag()
+                    .on("start", dragstarted)
+                    .on("drag", dragged)
+                    .on("end", dragended));
+
+            const labels = svg.selectAll(".text")
+                .data(nodes)
+                .enter().append("text")
+                .attr("font-size", "16px")
+                .attr("fill", "#333")
+                .text(d => d.name);
+
+            simulation.on("tick", () => {
+                link
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+                node
+                    .attr("cx", d => d.x)
+                    .attr("cy", d => d.y);
+                labels
+                    .attr("x", d => d.x + 12)
+                    .attr("y", d => d.y + 4);
+                linkLabels
+                    .attr("x", d => (d.source.x + d.target.x) / 2)
+                    .attr("y", d => (d.source.y + d.target.y) / 2);
+            });
+
+            function dragstarted(event, d) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x; d.fy = d.y;
+            }
+            function dragged(event, d) {
+                d.fx = event.x; d.fy = event.y;
+            }
+            function dragended(event, d) {
+                if (!event.active) simulation.alphaTarget(0);
+                d.fx = null; d.fy = null;
+            }
+        </script>
+
+        <!-- Search Results -->
+        <div class="mb-8">
+            <h2 class="text-xl font-semibold mb-4 text-gray-700">Latest Search Results</h2>
+            {% if search_results %}
+            {% set latest = search_results|last %}
+            <div class="space-y-4">
+                {% for doc in latest %}
+                <div class="grid grid-cols-[200px_1fr] gap-4">
+                    <!-- Clickthrough rates -->
+                    {% set clkrates = doc.clicks %}
+                    <div class="flex flex-col space-y-1">
+                        {% for keyword, rate in clkrates.items() %}
+                        <div class="text-xs bg-gray-50 p-2 rounded">
+                            <span class="font-medium text-gray-700">{{ keyword }}:</span>
+                            <span class="text-gray-600">{{ rate }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition duration-150">
+                        <h3 class="text-lg font-semibold text-gray-900 mb-2">{{ doc.title }}</h3>
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-sm text-gray-500">Score: {{ "%.3f"|format(doc.bm25_score) }}</span>
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                                        {% if doc.entropy_quartile == '1st Quartile' %}
+                                            bg-green-100 text-green-800
+                                        {% elif doc.entropy_quartile == '2nd Quartile' %}
+                                            bg-blue-100 text-blue-800
+                                        {% elif doc.entropy_quartile == '3rd Quartile' %}
+                                            bg-yellow-100 text-yellow-800
+                                        {% else %}
+                                            bg-red-100 text-red-800
+                                        {% endif %}">
+                                {{ doc.entropy_quartile }}
+                            </span>
+                        </div>
+                        <p class="text-gray-600 mb-4">{{ doc.abstract|highlight_keywords(keywords)|safe }}</p>
+                        {% set keywords_list = keywords|join(',') %}
+                        <a href="{{ url_for('click_document', doc_id=doc.doc_id, keywords=keywords_list) }}">
+                            <!-- class="text-indigo-600 hover:text-indigo-800 text-sm font-medium"> -->
+                            👍
+                        </a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Beam Search Results -->
+        <!-- <div>
+            <h2 class="text-xl font-semibold mb-4 text-gray-700">Beam Search Prefetched Docs</h2>
+            <div class="bg-gray-50 rounded-lg p-4">
+                {% for doc in beam_docs %}
+                    <div class="bg-white rounded-md p-4 mb-2 last:mb-0">
+                        <div class="flex justify-between items-center">
+                            <h3 class="font-medium text-gray-900">{{ doc.title }}</h3>
+                            <span class="text-sm text-gray-500">
+                                similarity: {{ "%.3f"|format(doc.similarity) }}
+                            </span>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div> -->
+    </div>
+</div>
+{% endblock %}

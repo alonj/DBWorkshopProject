@@ -1,0 +1,47 @@
+# README
+
+github repository:
+
+https://github.com/alonj/DBWorkshopProject
+
+## Installation
+
+1. Create and activate a virtual environment (optional).
+2. Install dependencies from [requirements.txt](./requirements.txt):
+
+   pip install -r requirements.txt
+
+3. (Optional) Initialize the database using init_db.sql:
+
+    mysql -u <user> -p < init_db.sql
+
+## Usage
+
+1. Start the application:
+
+    python app.py
+
+2. Open a web browser and navigate to [http://127.0.0.1:5000/](http://127.0.0.1:5000/).
+3. Perform searches on the "/search" page. The system uses BM25 to rank documents; user queries are maintained in the session.
+
+## Codebase Overview
+- app.py:
+    Main Flask entry point. Defines routes including the highlight_keywords filter.
+- data_loader.py:
+    Implements load_initial_data for data setup.
+- db_connection.py:
+    Manages MySQL connections and query execution.
+- search.py:
+    Contains core search logic like bm25_search, get_results_texts, and more.
+- templates/:
+    Holds the Jinja2 HTML templates.
+- styles/:
+    Contains CSS stylesheets.
+- config.py:
+    Contains configuration settings.
+- config.yaml:
+    Contains database connection settings.
+- init_db.sql:
+    SQL script to initialize the database.
+- requirements.txt:
+    Lists dependencies for the application.

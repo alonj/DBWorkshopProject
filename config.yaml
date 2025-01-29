@@ -1,0 +1,7 @@
+DB_HOST: "localhost"
+DB_USER: ""
+DB_PASSWORD: ""
+DB_NAME: ""
+
+K1: 1.2
+B: 0.75

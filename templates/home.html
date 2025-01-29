@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<form action="{{ url_for('start_search') }}" method="POST">
+    <button type="submit">Start a New Search Session</button>
+</form>
+
+<a href="{{ url_for('sessions_page') }}">View Current Session</a>
+{% endblock %}
